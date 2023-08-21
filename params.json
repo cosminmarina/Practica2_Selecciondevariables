@@ -1,0 +1,7 @@
+{
+    "verbose":          true,
+    "iter":             1,
+    "test_size":        0.25,
+    "n_col_filter":     3,
+    "data_file":        "./data/data.csv"
+}
