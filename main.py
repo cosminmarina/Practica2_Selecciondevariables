@@ -6,7 +6,7 @@ import json
 from ITMO_FS.filters.univariate import spearman_corr
 from ITMO_FS.filters.multivariate import FCBFDiscreteFilter
 from ITMO_FS.filters.unsupervised.trace_ratio_laplacian import TraceRatioLaplacian
-from ITMO_FS.wrappers import RecursiveElimination
+from ITMO_FS.wrappers import BackwardSelection
 from sklearn.decomposition import PCA
 from sklearn.neighbors import KNeighborsClassifier
 from sklearn.model_selection import train_test_split
@@ -58,6 +58,7 @@ def get_stats(y_test: Union[np.ndarray, list], y_pred: Union[np.ndarray, list], 
 
     ConfusionMatrixDisplay.from_predictions(y_test, y_pred)
     plt.savefig(f'./results/confusion_matrix-{file_save}.png')
+    plt.close()
     return
 
 def main(params):
@@ -66,6 +67,10 @@ def main(params):
     sp_corr_list = []
     sp_corr_sel_list = []
     fcbf_sel_list = []
+    tracer_list = []
+    tracer_sel_list = []
+    recel_sel_list = []
+    pca_var_list = []
     for i in range(params["iter"]):
         # Train/test split
         X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=params["test_size"])
@@ -92,23 +97,62 @@ def main(params):
         fcbf.fit(X_train_selection, y_train_selection)
         X_train_model_selected = fcbf.transform(X_train_model)
         idx = know_selected(X_train_model, X_train_model_selected)
-        fcbf_sel_list.append(col_names[idx])
+        fcbf_sel = ['-', '-', '-', '-', '-']
+        fcbf_sel[:len(idx)] = col_names[idx] 
+        fcbf_sel_list.append(fcbf_sel)
         ## Model phase
         knn = KNeighborsClassifier()
         knn.fit(X_train_model_selected,y_train_model)
         y_pred_fcbf = knn.predict(X_test[:,idx])
         get_stats(y_test, y_pred_fcbf, f'fcbf-{i}')
-
-        
-
+        # TraceRatio
+        ## Selection phase
+        tracer = TraceRatioLaplacian(params["n_col_filter"])
+        idx = tracer.run(X_train_selection, y_train_selection)
+        tracer_sel_list.append(col_names[idx[0]])
+        tracer_list.append(idx[1])
+        ## Model phase
+        knn = KNeighborsClassifier()
+        knn.fit(X_train_model[:,idx[0]],y_train_model)
+        y_pred_tracer = knn.predict(X_test[:,idx[0]])
+        get_stats(y_test, y_pred_tracer, f'tracer-{i}')
+        # PCA
+        ## Selection phase
+        pca = PCA(n_components=params["n_col_filter"])
+        pca.fit(X_train_selection)
+        pca_var_list.append(pca.explained_variance_)
+        X_train_model_selected = pca.transform(X_train_model)
+        X_test_selected = pca.transform(X_test)
+        ## Model phase
+        knn = KNeighborsClassifier()
+        knn.fit(X_train_model_selected, y_train_model)
+        y_pred_pca = knn.predict(X_test_selected)
+        get_stats(y_test, y_pred_pca, f'pca-{i}')
+        # Wrapper BackwardSelection
+        ## Selection phase
+        knn = KNeighborsClassifier()
+        recel = BackwardSelection(knn, len(col_names)-params["n_col_filter"], 'f1_weighted')
+        recel.fit(X_train_selection, y_train_selection)
+        idx = recel.selected_features
+        recel_sel_list.append(col_names[idx])
+        ## Model phase
+        knn.fit(X_train_model[:,idx],y_train_model)
+        y_pred_recel = knn.predict(X_test[:,idx])
+        get_stats(y_test, y_pred_recel, f'recel-{i}')
     df_sp_corr_rnk = pd.DataFrame(sp_corr_list, columns=col_names)
     df_sp_corr_sel = pd.DataFrame(sp_corr_sel_list, columns=[f'{i}-best' for i in range(params["n_col_filter"])])
+    df_fcbf_sel = pd.DataFrame(fcbf_sel_list, columns=[f'{i}-best' for i in range(len(col_names))])
+    df_tracer_rnk = pd.DataFrame(tracer_list, columns=col_names)
+    df_tracer_sel = pd.DataFrame(tracer_sel_list, columns=[f'{i}-best' for i in range(params["n_col_filter"])])
+    df_recel_sel = pd.DataFrame(recel_sel_list, columns=[f'{i}-best' for i in range(params["n_col_filter"])])
+    df_pca_var = pd.DataFrame(pca_var_list, columns=[f'{i}-var' for i in range(params["n_col_filter"])])
     df_sp_corr_rnk.to_csv('./results/ranking-sp-corr.csv')
     df_sp_corr_sel.to_csv('./results/selected-sp-corr.csv')
-
-
-
-
+    df_fcbf_sel.to_csv('./results/selected-fcbf.csv')
+    df_tracer_rnk.to_csv('./results/ranking-tracer.csv')
+    df_tracer_sel.to_csv('./results/selected-tracer.csv')
+    df_recel_sel.to_csv('./results/selected-recel.csv')
+    df_pca_var.to_csv('./results/selected-pca.csv')
     return
 
 if __name__  == "__main__":
