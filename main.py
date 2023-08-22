@@ -11,6 +11,7 @@ from sklearn.decomposition import PCA
 from sklearn.neighbors import KNeighborsClassifier
 from sklearn.model_selection import train_test_split
 from sklearn.metrics import precision_score, roc_auc_score, f1_score, recall_score, precision_recall_fscore_support, ConfusionMatrixDisplay
+import warnings
 
 def load_data(params:dict):
     df = pd.read_csv(params["data_file"], header=0)
@@ -66,7 +67,7 @@ def get_stats(y_test: Union[np.ndarray, list], y_pred: Union[np.ndarray, list], 
     plt.close()
     return
 
-def main(params):
+def main(params:dict):
     # Load data
     X, y, col_names = load_data(params)
     sp_corr_list = []
@@ -77,17 +78,33 @@ def main(params):
     recel_sel_list = []
     pca_var_list = []
     pca_var_ratio_list = []
+    # Loop iteration
     for i in range(params["iter"]):
         if params["verbose"]:
             print(f'Iteration: {i}\n')
         # Train/test split
         X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=params["test_size"])
-        X_train_selection, X_train_model, y_train_selection, y_train_model = train_test_split(X_train, y_train, test_size=0.5)
+        # wich_train possible values: all or float.
+        # In case of float, it will indicate the size of the data used to train the model
+        # In case of all, it will use all data to train the selector and train the model
+        wich_train = params["wich_train"]
+        if wich_train=='all':
+            X_train_selection, X_train_model, y_train_selection, y_train_model = X_train, X_train, y_train, y_train
+        elif type(wich_train)==float:
+            if wich_train < 0:
+                wich_train = 0.0
+                warnings.warn(f"Value {wich_train} of wich_train exceed the [0.0,1.0] range of valid values. I correct it for you, but be aware")
+            if wich_train > 1:
+                wich_train = 1.0
+                warnings.warn(f"Value {wich_train} of wich_train exceed the [0.0,1.0] range of valid values. I correct it for you, but be aware")    
+            X_train_selection, X_train_model, y_train_selection, y_train_model = train_test_split(X_train, y_train, test_size=0.5)
+        else:
+            raise ValueError(f"Not recognized value {wich_train} of wich_train params. It should be 'all' or a float value between 0.0 and 1.0 numbers.")
         # Base algorithm
         knn = KNeighborsClassifier()
         knn.fit(X_train, y_train)
         y_pred = knn.predict(X_test)
-        get_stats(y_test, y_pred, f'base-knn-{i}-n_feat{params["n_col_filter"]}')
+        get_stats(y_test, y_pred, f'base-knn-{i}-n_feat{params["n_col_filter"]}-wt{params["wich_train"]}')
         if params["verbose"]:
             print(f'Finished base-knn-{i}\n')
         # Spearman corr
@@ -100,7 +117,7 @@ def main(params):
         knn = KNeighborsClassifier()
         knn.fit(X_train_model[:,idx],y_train_model)
         y_pred_sp_corr = knn.predict(X_test[:,idx])
-        get_stats(y_test, y_pred_sp_corr, f'sp-corr-{i}-n_feat{params["n_col_filter"]}')
+        get_stats(y_test, y_pred_sp_corr, f'sp-corr-{i}-n_feat{params["n_col_filter"]}-wt{params["wich_train"]}')
         if params["verbose"]:
             print(f'Finished sp-corr-{i}\n')
         # FCBFDiscreteFilter
@@ -116,7 +133,7 @@ def main(params):
         knn = KNeighborsClassifier()
         knn.fit(X_train_model_selected,y_train_model)
         y_pred_fcbf = knn.predict(X_test[:,idx])
-        get_stats(y_test, y_pred_fcbf, f'fcbf-{i}-n_feat{params["n_col_filter"]}')
+        get_stats(y_test, y_pred_fcbf, f'fcbf-{i}-n_feat{params["n_col_filter"]}-wt{params["wich_train"]}')
         if params["verbose"]:
             print(f'Finished fcbf-{i}\n')
         # TraceRatio
@@ -129,7 +146,7 @@ def main(params):
         knn = KNeighborsClassifier()
         knn.fit(X_train_model[:,idx[0]],y_train_model)
         y_pred_tracer = knn.predict(X_test[:,idx[0]])
-        get_stats(y_test, y_pred_tracer, f'tracer-{i}-n_feat{params["n_col_filter"]}')
+        get_stats(y_test, y_pred_tracer, f'tracer-{i}-n_feat{params["n_col_filter"]}-wt{params["wich_train"]}')
         if params["verbose"]:
             print(f'Finished tracer-{i}\n')
         # PCA
@@ -144,7 +161,7 @@ def main(params):
         knn = KNeighborsClassifier()
         knn.fit(X_train_model_selected, y_train_model)
         y_pred_pca = knn.predict(X_test_selected)
-        get_stats(y_test, y_pred_pca, f'pca-{i}-n_feat{params["n_col_filter"]}')
+        get_stats(y_test, y_pred_pca, f'pca-{i}-n_feat{params["n_col_filter"]}-wt{params["wich_train"]}')
         if params["verbose"]:
             print(f'Finished pca-{i}\n')
         # Wrapper BackwardSelection
@@ -157,7 +174,7 @@ def main(params):
         ## Model phase
         knn.fit(X_train_model[:,idx],y_train_model)
         y_pred_recel = knn.predict(X_test[:,idx])
-        get_stats(y_test, y_pred_recel, f'recel-{i}-n_feat{params["n_col_filter"]}')
+        get_stats(y_test, y_pred_recel, f'recel-{i}-n_feat{params["n_col_filter"]}-wt{params["wich_train"]}')
         if params["verbose"]:
             print(f'Finished recel-{i}\n')
     df_sp_corr_rnk = pd.DataFrame(sp_corr_list, columns=col_names)
@@ -168,15 +185,16 @@ def main(params):
     df_recel_sel = pd.DataFrame(recel_sel_list, columns=[f'{i+1}-best' for i in range(params["n_col_filter"])])
     df_pca_var = pd.DataFrame(pca_var_list, columns=[f'{i+1}-var' for i in range(params["n_col_filter"])])
     df_pca_var_ratio = pd.DataFrame(pca_var_ratio_list, columns=[f'{i+1}-var' for i in range(params["n_col_filter"])])
-    df_sp_corr_rnk.to_csv(f'./results/ranking-sp-corr-n_feat{params["n_col_filter"]}.csv', float_format='%1.5f')
-    df_sp_corr_sel.to_csv(f'./results/selected-sp-corr-n_feat{params["n_col_filter"]}.csv', float_format='%1.5f')
-    df_fcbf_sel.to_csv(f'./results/selected-fcbf-n_feat{params["n_col_filter"]}.csv', float_format='%1.5f')
-    df_tracer_rnk.to_csv(f'./results/ranking-tracer-n_feat{params["n_col_filter"]}.csv', float_format='%1.5f')
-    df_tracer_sel.to_csv(f'./results/selected-tracer-n_feat{params["n_col_filter"]}.csv', float_format='%1.5f')
-    df_recel_sel.to_csv(f'./results/selected-recel-n_feat{params["n_col_filter"]}.csv', float_format='%1.5f')
-    df_pca_var.to_csv(f'./results/explained-var-pca-n_feat{params["n_col_filter"]}.csv', float_format='%1.5f')
-    df_pca_var_ratio.to_csv(f'./results/explained-var-ratio-pca-n_feat{params["n_col_filter"]}.csv', float_format='%1.5f')
+    df_sp_corr_rnk.to_csv(f'./results/ranking-sp-corr-n_feat{params["n_col_filter"]}-wt{params["wich_train"]}.csv', float_format='%1.5f')
+    df_sp_corr_sel.to_csv(f'./results/selected-sp-corr-n_feat{params["n_col_filter"]}-wt{params["wich_train"]}.csv', float_format='%1.5f')
+    df_fcbf_sel.to_csv(f'./results/selected-fcbf-n_feat{params["n_col_filter"]}-wt{params["wich_train"]}.csv', float_format='%1.5f')
+    df_tracer_rnk.to_csv(f'./results/ranking-tracer-n_feat{params["n_col_filter"]}-wt{params["wich_train"]}.csv', float_format='%1.5f')
+    df_tracer_sel.to_csv(f'./results/selected-tracer-n_feat{params["n_col_filter"]}-wt{params["wich_train"]}.csv', float_format='%1.5f')
+    df_recel_sel.to_csv(f'./results/selected-recel-n_feat{params["n_col_filter"]}-wt{params["wich_train"]}.csv', float_format='%1.5f')
+    df_pca_var.to_csv(f'./results/explained-var-pca-n_feat{params["n_col_filter"]}-wt{params["wich_train"]}.csv', float_format='%1.5f')
+    df_pca_var_ratio.to_csv(f'./results/explained-var-ratio-pca-n_feat{params["n_col_filter"]}-wt{params["wich_train"]}.csv', float_format='%1.5f')
     return
+
 
 if __name__  == "__main__":
     file_params_name = './params.json'

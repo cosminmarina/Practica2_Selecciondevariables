@@ -3,5 +3,6 @@
     "iter":             5,
     "test_size":        0.25,
     "n_col_filter":     3,
+    "wich_train":       0.5,
     "data_file":        "./data/data.csv"
 }
