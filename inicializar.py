@@ -11,6 +11,14 @@ def inicializar(path:str, size:int=100):
 
 
 if __name__ == "__main__":
-    path = './data/data.csv'
+    file_params_name = './params.json'
+    try:
+        file_params = open(file_params_name)
+    except:
+        raise OSError(f'File {file_params_name} not found. Your method need a configuration parameters file')
+    else:
+        params = json.load(file_params)
+        file_params.close()
+    path = params["data_file"]
     inicializar(path)
 
